@@ -76,7 +76,7 @@ func NewCmdRoot() *cobra.Command {
 				return
 			}
 
-			checkForJiraToken(viper.GetString("server"), viper.GetString("login"))
+			// checkForJiraToken(viper.GetString("server"), viper.GetString("login"))
 
 			configFile := viper.ConfigFileUsed()
 			if !jiraConfig.Exists(configFile) {

@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
+	"log"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -132,9 +135,23 @@ func NewClient(c Config, opts ...ClientFunc) *Client {
 		opt(&client)
 	}
 
+	// Create a CA certificate pool and add cert.pem to it
+	caCert, err := ioutil.ReadFile("/home/mhatch/.certs/akamai_ca_list.pem")
+	if err != nil {
+		log.Fatal(err)
+	}
+	caCertPool := x509.NewCertPool()
+	caCertPool.AppendCertsFromPEM(caCert)
+
+	// Read the key pair to create certificate
+	cert, err := tls.LoadX509KeyPair("/home/mhatch/.certs/mhatch.crt", "/home/mhatch/.certs/mhatch.key")
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	client.transport = &http.Transport{
 		Proxy:           http.ProxyFromEnvironment,
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: client.insecure},
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: client.insecure, RootCAs: caCertPool, Certificates: []tls.Certificate{cert}, Renegotiation: tls.RenegotiateOnceAsClient},
 		DialContext: (&net.Dialer{
 			Timeout: client.timeout,
 		}).DialContext,
@@ -244,11 +261,11 @@ func (c *Client) request(ctx context.Context, method, endpoint string, body []by
 		req.Header.Set(k, v)
 	}
 
-	if c.authType == AuthTypeBearer {
-		req.Header.Add("Authorization", "Bearer "+c.token)
-	} else {
-		req.SetBasicAuth(c.login, c.token)
-	}
+	// if c.authType == AuthTypeBearer {
+	// 	req.Header.Add("Authorization", "Bearer "+c.token)
+	// } else {
+	// 	req.SetBasicAuth(c.login, c.token)
+	// }
 
 	res, err = c.transport.RoundTrip(req.WithContext(ctx))
 
