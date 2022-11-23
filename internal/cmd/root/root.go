@@ -76,7 +76,10 @@ func NewCmdRoot() *cobra.Command {
 				return
 			}
 
-			checkForJiraToken(viper.GetString("server"), viper.GetString("login"))
+			// mtls doesn't need Jira API Token
+			if viper.GetString("auth_type") != "mtls" {
+				checkForJiraToken(viper.GetString("server"), viper.GetString("login"))
+			}
 
 			configFile := viper.ConfigFileUsed()
 			if !jiraConfig.Exists(configFile) {
