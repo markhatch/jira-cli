@@ -20,14 +20,14 @@ var (
 )
 
 func init() {
-	if runtime.GOOS == "windows" {
-		defaultEditor = "notepad"
-	} else if j := os.Getenv("JIRA_EDITOR"); j != "" {
+	if j := os.Getenv("JIRA_EDITOR"); j != "" {
 		defaultEditor = j
 	} else if v := os.Getenv("VISUAL"); v != "" {
 		defaultEditor = v
 	} else if e := os.Getenv("EDITOR"); e != "" {
 		defaultEditor = e
+	} else if runtime.GOOS == "windows" {
+		defaultEditor = "notepad"
 	}
 }
 
@@ -64,8 +64,9 @@ type EditorTemplateData struct {
 	Config        *survey.PromptConfig
 }
 
-//nolint:gocyclo
 // EXTENDED to augment prompt text and keypress handling.
+//
+//nolint:gocyclo
 func (e *JiraEditor) prompt(initialValue string, config *survey.PromptConfig) (interface{}, error) {
 	err := e.Render(
 		EditorQuestionTemplate,

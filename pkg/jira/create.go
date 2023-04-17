@@ -7,8 +7,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/spf13/viper"
-
 	"github.com/ankitpokhrel/jira-cli/pkg/adf"
 	"github.com/ankitpokhrel/jira-cli/pkg/md"
 )
@@ -29,6 +27,8 @@ type CreateRequest struct {
 	ParentIssueKey string
 	Summary        string
 	Body           interface{} // string in v1/v2 and adf.ADF in v3
+	Reporter       string
+	Assignee       string
 	Priority       string
 	Labels         []string
 	Components     []string
@@ -44,12 +44,24 @@ type CreateRequest struct {
 	// while creating an issue.
 	CustomFields map[string]string
 
-	projectType string
+	projectType            string
+	installationType       string
+	configuredCustomFields []IssueTypeField
 }
 
-// ForProjectType set jira project type.
+// ForProjectType sets jira project type.
 func (cr *CreateRequest) ForProjectType(pt string) {
 	cr.projectType = pt
+}
+
+// ForInstallationType sets jira project type.
+func (cr *CreateRequest) ForInstallationType(it string) {
+	cr.installationType = it
+}
+
+// WithCustomFields sets valid custom fields for the issue.
+func (cr *CreateRequest) WithCustomFields(cf []IssueTypeField) {
+	cr.configuredCustomFields = cf
 }
 
 // Create creates an issue using v3 version of the POST /issue endpoint.
@@ -147,6 +159,20 @@ func (*Client) getRequestData(req *CreateRequest) *createRequest {
 			data.Fields.M.Name = req.ParentIssueKey
 		}
 	}
+	if req.Reporter != "" {
+		if req.installationType == InstallationTypeLocal {
+			data.Fields.M.Reporter = &nameOrAccountID{Name: &req.Reporter}
+		} else {
+			data.Fields.M.Reporter = &nameOrAccountID{AccountID: &req.Reporter}
+		}
+	}
+	if req.Assignee != "" {
+		if req.installationType == InstallationTypeLocal {
+			data.Fields.M.Assignee = &nameOrAccountID{Name: &req.Assignee}
+		} else {
+			data.Fields.M.Assignee = &nameOrAccountID{AccountID: &req.Assignee}
+		}
+	}
 	if req.Priority != "" {
 		data.Fields.M.Priority = &struct {
 			Name string `json:"name,omitempty"`
@@ -176,20 +202,13 @@ func (*Client) getRequestData(req *CreateRequest) *createRequest {
 		}
 		data.Fields.M.FixVersions = versions
 	}
-	constructCustomFields(req.CustomFields, &data)
+	constructCustomFields(req.CustomFields, req.configuredCustomFields, &data)
 
 	return &data
 }
 
-func constructCustomFields(fields map[string]string, data *createRequest) {
-	if len(fields) == 0 {
-		return
-	}
-
-	var configuredFields []IssueTypeField
-
-	err := viper.UnmarshalKey("issue.fields.custom", &configuredFields)
-	if err != nil || len(configuredFields) == 0 {
+func constructCustomFields(fields map[string]string, configuredFields []IssueTypeField, data *createRequest) {
+	if len(fields) == 0 || len(configuredFields) == 0 {
 		return
 	}
 
@@ -238,6 +257,11 @@ type createRequest struct {
 	Fields createFieldsMarshaler `json:"fields"`
 }
 
+type nameOrAccountID struct {
+	Name      *string `json:"name,omitempty"`      // For local installation.
+	AccountID *string `json:"accountId,omitempty"` // For cloud installation.
+}
+
 type createFields struct {
 	Project struct {
 		Key string `json:"key"`
@@ -248,9 +272,11 @@ type createFields struct {
 	Parent *struct {
 		Key string `json:"key"`
 	} `json:"parent,omitempty"`
-	Name        string      `json:"name,omitempty"`
-	Summary     string      `json:"summary"`
-	Description interface{} `json:"description,omitempty"`
+	Name        string           `json:"name,omitempty"`
+	Summary     string           `json:"summary"`
+	Description interface{}      `json:"description,omitempty"`
+	Reporter    *nameOrAccountID `json:"reporter,omitempty"`
+	Assignee    *nameOrAccountID `json:"assignee,omitempty"`
 	Priority    *struct {
 		Name string `json:"name,omitempty"`
 	} `json:"priority,omitempty"`

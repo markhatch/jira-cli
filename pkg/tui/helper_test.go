@@ -1,13 +1,14 @@
 package tui
 
 import (
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
 
 func TestColumnPadding(t *testing.T) {
+	t.Parallel()
+
 	cases := []struct {
 		name     string
 		input    string
@@ -46,6 +47,8 @@ func TestColumnPadding(t *testing.T) {
 }
 
 func TestSplitText(t *testing.T) {
+	t.Parallel()
+
 	cases := []struct {
 		name     string
 		input    string
@@ -87,15 +90,58 @@ func TestSplitText(t *testing.T) {
 }
 
 func TestGetPager(t *testing.T) {
-	t.Parallel()
+	// TERM is xterm, JIRA_PAGER is not set, PAGER is set.
+	{
+		t.Setenv("TERM", "xterm")
 
-	pager := os.Getenv("PAGER")
+		t.Setenv("PAGER", "")
+		assert.Equal(t, "less", GetPager())
 
-	_ = os.Setenv("PAGER", "")
-	assert.Equal(t, "less -r", GetPager())
+		t.Setenv("PAGER", "more")
+		assert.Equal(t, "more", GetPager())
 
-	_ = os.Setenv("PAGER", "more")
-	assert.Equal(t, "more", GetPager())
+		t.Setenv("PAGER", "")
+	}
 
-	_ = os.Setenv("PAGER", pager)
+	// TERM is set, JIRA_PAGER is not set, PAGER is unset.
+	{
+		t.Setenv("TERM", "dumb")
+		assert.Equal(t, "cat", GetPager())
+
+		t.Setenv("TERM", "")
+		assert.Equal(t, "cat", GetPager())
+
+		t.Setenv("TERM", "xterm")
+		assert.Equal(t, "less", GetPager())
+	}
+
+	// TERM is set, JIRA_PAGER is set, PAGER is unset.
+	{
+		t.Setenv("JIRA_PAGER", "bat")
+
+		t.Setenv("TERM", "dumb")
+		assert.Equal(t, "cat", GetPager())
+
+		t.Setenv("TERM", "")
+		assert.Equal(t, "cat", GetPager())
+
+		t.Setenv("TERM", "xterm")
+		assert.Equal(t, "bat", GetPager())
+	}
+
+	// TERM gets precedence if both PAGER and TERM are set.
+	{
+		t.Setenv("TERM", "")
+		t.Setenv("PAGER", "")
+		t.Setenv("JIRA_PAGER", "")
+		assert.Equal(t, "cat", GetPager())
+
+		t.Setenv("PAGER", "more")
+		t.Setenv("TERM", "dumb")
+		assert.Equal(t, "cat", GetPager())
+
+		t.Setenv("PAGER", "more")
+		t.Setenv("TERM", "xterm")
+		assert.Equal(t, "more", GetPager())
+	}
 }

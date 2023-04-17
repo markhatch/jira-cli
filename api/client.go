@@ -40,19 +40,26 @@ func Client(config jira.Config) *jira.Client {
 		secret, _ := keyring.Get("jira-cli", config.Login)
 		config.APIToken = secret
 	}
-
 	if config.AuthType == "" {
 		config.AuthType = jira.AuthType(viper.GetString("auth_type"))
 	}
-	config.Insecure = viper.GetBool("insecure")
+	if config.Insecure == nil {
+		insecure := viper.GetBool("insecure")
+		config.Insecure = &insecure
+	}
 
 	jiraClient = jira.NewClient(
 		config,
 		jira.WithTimeout(clientTimeout),
-		jira.WithInsecureTLS(config.Insecure),
+		jira.WithInsecureTLS(*config.Insecure),
 	)
 
 	return jiraClient
+}
+
+// DefaultClient returns default jira client.
+func DefaultClient(debug bool) *jira.Client {
+	return Client(jira.Config{Debug: debug})
 }
 
 // ProxyCreate uses either a v2 or v3 version of the Jira POST /issue
@@ -175,4 +182,27 @@ func ProxyTransitions(c *jira.Client, key string) ([]*jira.Transition, error) {
 	}
 
 	return transitions, err
+}
+
+// ProxyWatchIssue uses either a v2 or v3 version of the PUT /issue/{key}/watchers
+// endpoint to assign an issue to the user. Defaults to v3 if installation type is
+// not defined in the config.
+func ProxyWatchIssue(c *jira.Client, key string, user *jira.User) error {
+	it := viper.GetString("installation")
+
+	var assignee string
+
+	if user != nil {
+		switch it {
+		case jira.InstallationTypeLocal:
+			assignee = user.Name
+		default:
+			assignee = user.AccountID
+		}
+	}
+
+	if it == jira.InstallationTypeLocal {
+		return c.WatchIssueV2(key, assignee)
+	}
+	return c.WatchIssue(key, assignee)
 }

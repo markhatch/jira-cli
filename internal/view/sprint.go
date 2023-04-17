@@ -29,6 +29,7 @@ type SprintList struct {
 }
 
 // Render renders the sprint explorer view.
+//
 //nolint:dupl
 func (sl *SprintList) Render() error {
 	renderer, err := MDRenderer()
@@ -46,13 +47,14 @@ func (sl *SprintList) Render() error {
 		),
 		tui.WithInitialText(helpText),
 		tui.WithContentTableOpts(
+			tui.WithFixedColumns(sl.Display.FixedColumns),
 			tui.WithTableStyle(sl.Display.TableStyle),
 			tui.WithSelectedFunc(navigate(sl.Server)),
 			tui.WithViewModeFunc(func(r, c int, d interface{}) (func() interface{}, func(interface{}) (string, error)) {
 				dataFn := func() interface{} {
 					data := d.(tui.TableData)
-					ci := getKeyColumnIndex(data[0])
-					iss, _ := api.ProxyGetIssue(api.Client(jira.Config{}), data[r][ci], issue.NewNumCommentsFilter(1))
+					ci := data.GetIndex(fieldKey)
+					iss, _ := api.ProxyGetIssue(api.DefaultClient(false), data.Get(r, ci), issue.NewNumCommentsFilter(1))
 					return iss
 				}
 				renderFn := func(i interface{}) (string, error) {
@@ -75,13 +77,14 @@ func (sl *SprintList) Render() error {
 
 // RenderInTable renders the list in table view.
 func (sl *SprintList) RenderInTable() error {
-	if sl.Display.Plain {
+	if sl.Display.Plain || tui.IsDumbTerminal() || tui.IsNotTTY() {
 		w := tabwriter.NewWriter(os.Stdout, 0, tabWidth, 1, '\t', 0)
 		return sl.renderPlain(w)
 	}
 
 	data := sl.tableData()
 	view := tui.NewTable(
+		tui.WithFixedColumns(sl.Display.FixedColumns),
 		tui.WithTableStyle(sl.Display.TableStyle),
 		tui.WithTableFooterText(
 			fmt.Sprintf(
@@ -147,6 +150,7 @@ func (sl *SprintList) tabularize(issues []*jira.Issue) tui.TableData {
 			issue.Fields.Resolution.Name,
 			formatDateTime(issue.Fields.Created, jira.RFC3339),
 			formatDateTime(issue.Fields.Updated, jira.RFC3339),
+			strings.Join(issue.Fields.Labels, ","),
 		})
 	}
 

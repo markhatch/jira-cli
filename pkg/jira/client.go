@@ -102,7 +102,7 @@ type Config struct {
 	Login    string
 	APIToken string
 	AuthType AuthType
-	Insecure bool
+	Insecure *bool
 	Debug    bool
 }
 
@@ -191,47 +191,27 @@ func (c *Client) GetV1(ctx context.Context, path string, headers Header) (*http.
 
 // Post sends POST request to v3 version of the jira api.
 func (c *Client) Post(ctx context.Context, path string, body []byte, headers Header) (*http.Response, error) {
-	res, err := c.request(ctx, http.MethodPost, c.server+baseURLv3+path, body, headers)
-	if err != nil {
-		return res, err
-	}
-	return res, err
+	return c.request(ctx, http.MethodPost, c.server+baseURLv3+path, body, headers)
 }
 
 // PostV2 sends POST request to v2 version of the jira api.
 func (c *Client) PostV2(ctx context.Context, path string, body []byte, headers Header) (*http.Response, error) {
-	res, err := c.request(ctx, http.MethodPost, c.server+baseURLv2+path, body, headers)
-	if err != nil {
-		return res, err
-	}
-	return res, err
+	return c.request(ctx, http.MethodPost, c.server+baseURLv2+path, body, headers)
 }
 
 // PostV1 sends POST request to v1 version of the jira api.
 func (c *Client) PostV1(ctx context.Context, path string, body []byte, headers Header) (*http.Response, error) {
-	res, err := c.request(ctx, http.MethodPost, c.server+baseURLv1+path, body, headers)
-	if err != nil {
-		return res, err
-	}
-	return res, err
+	return c.request(ctx, http.MethodPost, c.server+baseURLv1+path, body, headers)
 }
 
 // Put sends PUT request to v3 version of the jira api.
 func (c *Client) Put(ctx context.Context, path string, body []byte, headers Header) (*http.Response, error) {
-	res, err := c.request(ctx, http.MethodPut, c.server+baseURLv3+path, body, headers)
-	if err != nil {
-		return res, err
-	}
-	return res, err
+	return c.request(ctx, http.MethodPut, c.server+baseURLv3+path, body, headers)
 }
 
 // PutV2 sends PUT request to v2 version of the jira api.
 func (c *Client) PutV2(ctx context.Context, path string, body []byte, headers Header) (*http.Response, error) {
-	res, err := c.request(ctx, http.MethodPut, c.server+baseURLv2+path, body, headers)
-	if err != nil {
-		return res, err
-	}
-	return res, err
+	return c.request(ctx, http.MethodPut, c.server+baseURLv2+path, body, headers)
 }
 
 // DeleteV2 sends DELETE request to v2 version of the jira api.
@@ -267,17 +247,19 @@ func (c *Client) request(ctx context.Context, method, endpoint string, body []by
 	// 	req.SetBasicAuth(c.login, c.token)
 	// }
 
-	res, err = c.transport.RoundTrip(req.WithContext(ctx))
+	httpClient := &http.Client{Transport: c.transport}
 
-	return res, err
+	return httpClient.Do(req.WithContext(ctx))
 }
 
 func dump(req *http.Request, res *http.Response) {
 	reqDump, _ := httputil.DumpRequest(req, true)
-	respDump, _ := httputil.DumpResponse(res, false)
-
 	prettyPrintDump("Request Details", reqDump)
-	prettyPrintDump("Response Details", respDump)
+
+	if res != nil {
+		respDump, _ := httputil.DumpResponse(res, false)
+		prettyPrintDump("Response Details", respDump)
+	}
 }
 
 func prettyPrintDump(heading string, data []byte) {

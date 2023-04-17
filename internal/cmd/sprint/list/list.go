@@ -15,6 +15,7 @@ import (
 	"github.com/ankitpokhrel/jira-cli/internal/query"
 	"github.com/ankitpokhrel/jira-cli/internal/view"
 	"github.com/ankitpokhrel/jira-cli/pkg/jira"
+	"github.com/ankitpokhrel/jira-cli/pkg/tui"
 )
 
 const (
@@ -76,7 +77,7 @@ func sprintList(cmd *cobra.Command, args []string) {
 	debug, err := cmd.Flags().GetBool("debug")
 	cmdutil.ExitIfError(err)
 
-	client := api.Client(jira.Config{Debug: debug})
+	client := api.DefaultClient(debug)
 
 	sprintQuery, err := query.NewSprint(cmd.Flags())
 	cmdutil.ExitIfError(err)
@@ -126,6 +127,9 @@ func singleSprintView(sprintQuery *query.Sprint, flags query.FlagParser, boardID
 	noTruncate, err := flags.GetBool("no-truncate")
 	cmdutil.ExitIfError(err)
 
+	fixedColumns, err := flags.GetUint("fixed-columns")
+	cmdutil.ExitIfError(err)
+
 	columns, err := flags.GetString("columns")
 	cmdutil.ExitIfError(err)
 
@@ -161,9 +165,10 @@ func singleSprintView(sprintQuery *query.Sprint, flags query.FlagParser, boardID
 			singleSprintView(sprintQuery, flags, boardID, sprintID, project, server, client, nil)
 		},
 		Display: view.DisplayFormat{
-			Plain:      plain,
-			NoHeaders:  noHeaders,
-			NoTruncate: noTruncate,
+			Plain:        plain,
+			NoHeaders:    noHeaders,
+			NoTruncate:   noTruncate,
+			FixedColumns: fixedColumns,
 			Columns: func() []string {
 				if columns != "" {
 					return strings.Split(columns, ",")
@@ -205,6 +210,9 @@ func sprintExplorerView(sprintQuery *query.Sprint, flags query.FlagParser, board
 	noHeaders, err := flags.GetBool("no-headers")
 	cmdutil.ExitIfError(err)
 
+	fixedColumns, err := flags.GetUint("fixed-columns")
+	cmdutil.ExitIfError(err)
+
 	columns, err := flags.GetString("columns")
 	cmdutil.ExitIfError(err)
 
@@ -225,8 +233,9 @@ func sprintExplorerView(sprintQuery *query.Sprint, flags query.FlagParser, board
 			return resp.Issues
 		},
 		Display: view.DisplayFormat{
-			Plain:     plain,
-			NoHeaders: noHeaders,
+			Plain:        plain,
+			NoHeaders:    noHeaders,
+			FixedColumns: fixedColumns,
 			Columns: func() []string {
 				if columns != "" {
 					return strings.Split(columns, ",")
@@ -240,7 +249,7 @@ func sprintExplorerView(sprintQuery *query.Sprint, flags query.FlagParser, board
 	table, err := flags.GetBool("table")
 	cmdutil.ExitIfError(err)
 
-	if table {
+	if table || tui.IsDumbTerminal() || tui.IsNotTTY() {
 		cmdutil.ExitIfError(v.RenderInTable())
 	} else {
 		cmdutil.ExitIfError(v.Render())
@@ -266,7 +275,8 @@ func setFlags(cmd *cobra.Command) {
 	cmd.Flags().Bool("table", false, "Display sprints in a table view")
 	cmd.Flags().String("columns", "", "Comma separated list of columns to display in the plain mode.\n"+
 		fmt.Sprintf("Accepts (for sprint list): %s", strings.Join(view.ValidSprintColumns(), ", "))+
-		fmt.Sprintf("Accepts (for sprint issues): %s", strings.Join(view.ValidIssueColumns(), ", ")))
+		fmt.Sprintf("\nAccepts (for sprint issues): %s", strings.Join(view.ValidIssueColumns(), ", ")))
+	cmd.Flags().Uint("fixed-columns", 1, "Number of fixed columns in the interactive mode")
 	cmd.Flags().Bool("current", false, "List issues in current active sprint")
 	cmd.Flags().Bool("prev", false, "List issues in previous sprint")
 	cmd.Flags().Bool("next", false, "List issues in next planned sprint")

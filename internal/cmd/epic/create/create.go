@@ -1,8 +1,6 @@
 package create
 
 import (
-	"strings"
-
 	"github.com/AlecAivazis/survey/v2"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -46,22 +44,21 @@ func SetFlags(cmd *cobra.Command) {
 	cmdcommon.SetCreateFlags(cmd, "Epic")
 }
 
-//nolint:gocyclo
-// TODO: Reduce cyclomatic complexity.
 func create(cmd *cobra.Command, _ []string) {
 	server := viper.GetString("server")
 	project := viper.GetString("project.key")
 	projectType := viper.GetString("project.type")
+	installation := viper.GetString("installation")
 
 	params := parseFlags(cmd.Flags())
-	client := api.Client(jira.Config{Debug: params.debug})
+	client := api.DefaultClient(params.Debug)
 	cc := createCmd{
 		client: client,
 		params: params,
 	}
 
 	if cc.isNonInteractive() {
-		cc.params.noInput = true
+		cc.params.NoInput = true
 
 		if cc.isMandatoryParamsMissing() {
 			cmdutil.Failed(
@@ -76,59 +73,24 @@ func create(cmd *cobra.Command, _ []string) {
 		err := survey.Ask(qs, &ans)
 		cmdutil.ExitIfError(err)
 
-		if params.name == "" {
-			params.name = ans.Name
+		if params.Name == "" {
+			params.Name = ans.Name
 		}
-		if params.summary == "" {
-			params.summary = ans.Summary
+		if params.Summary == "" {
+			params.Summary = ans.Summary
 		}
-		if params.body == "" {
-			params.body = ans.Body
-		}
-	}
-
-	// TODO: Remove duplicates with issue/create.
-	if !params.noInput {
-		answer := struct{ Action string }{}
-		for answer.Action != cmdcommon.ActionSubmit {
-			err := survey.Ask([]*survey.Question{cmdcommon.GetNextAction()}, &answer)
-			cmdutil.ExitIfError(err)
-
-			switch answer.Action {
-			case cmdcommon.ActionCancel:
-				cmdutil.Failed("Action aborted")
-			case cmdcommon.ActionMetadata:
-				ans := struct{ Metadata []string }{}
-				err := survey.Ask(cmdcommon.GetMetadata(), &ans)
-				cmdutil.ExitIfError(err)
-
-				if len(ans.Metadata) > 0 {
-					qs = cmdcommon.GetMetadataQuestions(ans.Metadata)
-					ans := struct {
-						Priority    string
-						Labels      string
-						Components  string
-						FixVersions string
-					}{}
-					err := survey.Ask(qs, &ans)
-					cmdutil.ExitIfError(err)
-
-					if ans.Priority != "" {
-						params.priority = ans.Priority
-					}
-					if len(ans.Labels) > 0 {
-						params.labels = strings.Split(ans.Labels, ",")
-					}
-					if len(ans.Components) > 0 {
-						params.components = strings.Split(ans.Components, ",")
-					}
-					if len(ans.FixVersions) > 0 {
-						params.fixVersions = strings.Split(ans.FixVersions, ",")
-					}
-				}
-			}
+		if params.Body == "" {
+			params.Body = ans.Body
 		}
 	}
+
+	if !params.NoInput {
+		err := cmdcommon.HandleNoInput(params)
+		cmdutil.ExitIfError(err)
+	}
+
+	params.Reporter = cmdcommon.GetRelevantUser(client, project, params.Reporter)
+	params.Assignee = cmdcommon.GetRelevantUser(client, project, params.Assignee)
 
 	key, err := func() (string, error) {
 		s := cmdutil.Info("Creating an epic...")
@@ -137,17 +99,25 @@ func create(cmd *cobra.Command, _ []string) {
 		cr := jira.CreateRequest{
 			Project:      project,
 			IssueType:    jira.IssueTypeEpic,
-			Summary:      params.summary,
-			Body:         params.body,
-			Priority:     params.priority,
-			Labels:       params.labels,
-			Components:   params.components,
-			FixVersions:  params.fixVersions,
-			CustomFields: params.customFields,
+			Summary:      params.Summary,
+			Body:         params.Body,
+			Reporter:     params.Reporter,
+			Assignee:     params.Assignee,
+			Priority:     params.Priority,
+			Labels:       params.Labels,
+			Components:   params.Components,
+			FixVersions:  params.FixVersions,
+			CustomFields: params.CustomFields,
 			EpicField:    viper.GetString("epic.name"),
 		}
 		if projectType != jira.ProjectTypeNextGen {
-			cr.Name = params.name
+			cr.Name = params.Name
+		}
+		cr.ForProjectType(projectType)
+		cr.ForInstallationType(installation)
+		if configuredCustomFields, err := cmdcommon.GetConfiguredCustomFields(); err == nil {
+			cmdcommon.ValidateCustomFields(cr.CustomFields, configuredCustomFields)
+			cr.WithCustomFields(configuredCustomFields)
 		}
 
 		resp, err := client.CreateV2(&cr)
@@ -156,22 +126,9 @@ func create(cmd *cobra.Command, _ []string) {
 		}
 		return resp.Key, nil
 	}()
+
 	cmdutil.ExitIfError(err)
-
 	cmdutil.Success("Epic created\n%s/browse/%s", server, key)
-
-	if params.assignee != "" {
-		user, err := api.ProxyUserSearch(client, &jira.UserSearchOptions{
-			Query:   params.assignee,
-			Project: project,
-		})
-		if err != nil || len(user) == 0 {
-			cmdutil.Failed("Unable to find assignee")
-		}
-		if err = api.ProxyAssignIssue(client, key, user[0], jira.AssigneeDefault); err != nil {
-			cmdutil.Failed("Unable to set assignee: %s", err.Error())
-		}
-	}
 
 	if web, _ := cmd.Flags().GetBool("web"); web {
 		err := cmdutil.Navigate(server, key)
@@ -182,14 +139,14 @@ func create(cmd *cobra.Command, _ []string) {
 func (cc *createCmd) getQuestions(projectType string) []*survey.Question {
 	var qs []*survey.Question
 
-	if cc.params.name == "" && projectType != jira.ProjectTypeNextGen {
+	if cc.params.Name == "" && projectType != jira.ProjectTypeNextGen {
 		qs = append(qs, &survey.Question{
 			Name:     "name",
 			Prompt:   &survey.Input{Message: "Epic name"},
 			Validate: survey.Required,
 		})
 	}
-	if cc.params.summary == "" {
+	if cc.params.Summary == "" {
 		qs = append(qs, &survey.Question{
 			Name:     "summary",
 			Prompt:   &survey.Input{Message: "Summary"},
@@ -199,20 +156,20 @@ func (cc *createCmd) getQuestions(projectType string) []*survey.Question {
 
 	var defaultBody string
 
-	if cc.params.template != "" || cmdutil.StdinHasData() {
-		b, err := cmdutil.ReadFile(cc.params.template)
+	if cc.params.Template != "" || cmdutil.StdinHasData() {
+		b, err := cmdutil.ReadFile(cc.params.Template)
 		if err != nil {
 			cmdutil.Failed("Error: %s", err)
 		}
 		defaultBody = string(b)
 	}
 
-	if cc.params.noInput {
-		cc.params.body = defaultBody
+	if cc.params.NoInput {
+		cc.params.Body = defaultBody
 		return qs
 	}
 
-	if cc.params.body == "" {
+	if cc.params.Body == "" {
 		qs = append(qs, &survey.Question{
 			Name: "body",
 			Prompt: &surveyext.JiraEditor{
@@ -232,33 +189,18 @@ func (cc *createCmd) getQuestions(projectType string) []*survey.Question {
 
 type createCmd struct {
 	client *jira.Client
-	params *createParams
+	params *cmdcommon.CreateParams
 }
 
 func (cc *createCmd) isNonInteractive() bool {
-	return cmdutil.StdinHasData() || cc.params.template == "-"
+	return cmdutil.StdinHasData() || cc.params.Template == "-"
 }
 
 func (cc *createCmd) isMandatoryParamsMissing() bool {
-	return cc.params.summary == "" || cc.params.name == ""
+	return cc.params.Summary == "" || cc.params.Name == ""
 }
 
-type createParams struct {
-	name         string
-	summary      string
-	body         string
-	priority     string
-	assignee     string
-	labels       []string
-	components   []string
-	fixVersions  []string
-	customFields map[string]string
-	template     string
-	noInput      bool
-	debug        bool
-}
-
-func parseFlags(flags query.FlagParser) *createParams {
+func parseFlags(flags query.FlagParser) *cmdcommon.CreateParams {
 	name, err := flags.GetString("name")
 	cmdutil.ExitIfError(err)
 
@@ -269,6 +211,9 @@ func parseFlags(flags query.FlagParser) *createParams {
 	cmdutil.ExitIfError(err)
 
 	priority, err := flags.GetString("priority")
+	cmdutil.ExitIfError(err)
+
+	reporter, err := flags.GetString("reporter")
 	cmdutil.ExitIfError(err)
 
 	assignee, err := flags.GetString("assignee")
@@ -295,18 +240,19 @@ func parseFlags(flags query.FlagParser) *createParams {
 	debug, err := flags.GetBool("debug")
 	cmdutil.ExitIfError(err)
 
-	return &createParams{
-		name:         name,
-		summary:      summary,
-		body:         body,
-		priority:     priority,
-		assignee:     assignee,
-		labels:       labels,
-		components:   components,
-		fixVersions:  fixVersions,
-		customFields: custom,
-		template:     template,
-		noInput:      noInput,
-		debug:        debug,
+	return &cmdcommon.CreateParams{
+		Name:         name,
+		Summary:      summary,
+		Body:         body,
+		Priority:     priority,
+		Reporter:     reporter,
+		Assignee:     assignee,
+		Labels:       labels,
+		Components:   components,
+		FixVersions:  fixVersions,
+		CustomFields: custom,
+		Template:     template,
+		NoInput:      noInput,
+		Debug:        debug,
 	}
 }

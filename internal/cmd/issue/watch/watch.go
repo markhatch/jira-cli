@@ -1,4 +1,4 @@
-package assign
+package watch
 
 import (
 	"fmt"
@@ -7,7 +7,6 @@ import (
 
 	"github.com/AlecAivazis/survey/v2"
 	"github.com/AlecAivazis/survey/v2/core"
-	"github.com/briandowns/spinner"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
@@ -18,113 +17,80 @@ import (
 )
 
 const (
-	helpText = `Assign issue to a user.`
-	examples = `$ jira issue assign ISSUE-1 jon@domain.tld
+	helpText = `Adds user to issue watchers.`
+	examples = `$ jira issue watch ISSUE-1 jon@domain.tld
 
-# Assignee name or email needs to be an exact match
-$ jira issue assign ISSUE-1 "Jon Doe"
+# Watcher name or email needs to be an exact match
+$ jira issue watch ISSUE-1 "Jon Doe"
 
-# Assign to self
-$ jira issue assign ISSUE-1 $(jira me)
-
-# Assign to default assignee
-$ jira issue assign ISSUE-1 default
-
-# Unassign
-$ jira issue assign ISSUE-1 x`
+# Add self to watchers
+$ jira issue watch ISSUE-1 $(jira me)`
 
 	maxResults = 100
 	lineBreak  = "----------"
 
-	optionSearch  = "[Search...]"
-	optionDefault = "Default"
-	optionNone    = "No-one (Unassign)"
-	optionCancel  = "Cancel"
+	optionSearch = "[Search...]"
+	optionCancel = "Cancel"
 )
 
-// NewCmdAssign is an assign command.
-func NewCmdAssign() *cobra.Command {
+// NewCmdWatch is an watch command.
+func NewCmdWatch() *cobra.Command {
 	return &cobra.Command{
-		Use:     "assign ISSUE-KEY ASSIGNEE",
-		Short:   "Assign issue to a user",
+		Use:     "watch ISSUE-KEY WATCHER",
+		Short:   "Add user to issue watchers",
 		Long:    helpText,
 		Example: examples,
-		Aliases: []string{"asg"},
+		Aliases: []string{"wat"},
 		Annotations: map[string]string{
 			"help:args": `ISSUE-KEY	Issue key, eg: ISSUE-1
-ASSIGNEE	Email or display name of the user to assign the issue to`,
+WATCHER	Email or display name of the user to add to issue watchers`,
 		},
-		Run: assign,
+		Run: watch,
 	}
 }
 
-func assign(cmd *cobra.Command, args []string) {
+func watch(cmd *cobra.Command, args []string) {
 	project := viper.GetString("project.key")
 	params := parseArgsAndFlags(cmd.Flags(), args, project)
 	client := api.DefaultClient(params.debug)
-	ac := assignCmd{
+	ac := watchCmd{
 		client: client,
 		users:  nil,
 		params: params,
 	}
-	lu := strings.ToLower(ac.params.user)
 
 	cmdutil.ExitIfError(ac.setIssueKey(project))
 
-	if lu != strings.ToLower(optionNone) && lu != "x" && lu != jira.AssigneeDefault {
-		cmdutil.ExitIfError(ac.setAvailableUsers(project))
-		cmdutil.ExitIfError(ac.setAssignee(project))
+	cmdutil.ExitIfError(ac.setAvailableUsers(project))
+	cmdutil.ExitIfError(ac.setWatcher(project))
 
-		lu = strings.ToLower(ac.params.user)
-	}
-
-	u, err := ac.verifyAssignee()
+	u, err := ac.verifyWatcher()
 	if err != nil {
 		cmdutil.Failed("Error: %s", err.Error())
 		return
 	}
 
-	var assignee, uname string
-
-	switch {
-	case u != nil:
-		uname = getQueryableName(u.DisplayName, u.Name)
-	case lu == strings.ToLower(optionNone) || lu == "x":
-		assignee = jira.AssigneeNone
-		uname = "unassigned"
-	case lu == strings.ToLower(optionDefault):
-		assignee = jira.AssigneeDefault
-		uname = assignee
-	}
+	uname := getQueryableName(u.DisplayName, u.Name)
 
 	err = func() error {
-		var s *spinner.Spinner
-		if uname == "unassigned" {
-			s = cmdutil.Info(fmt.Sprintf("Unassigning user from issue %q...", ac.params.key))
-		} else {
-			s = cmdutil.Info(fmt.Sprintf("Assigning issue %q to user %q...", ac.params.key, uname))
-		}
+		s := cmdutil.Info(fmt.Sprintf("Adding user %q as watcher of issue %q...", uname, ac.params.key))
 		defer s.Stop()
 
-		return api.ProxyAssignIssue(client, ac.params.key, u, assignee)
+		return api.ProxyWatchIssue(client, ac.params.key, u)
 	}()
 	cmdutil.ExitIfError(err)
 
-	if uname == "unassigned" {
-		cmdutil.Success("User unassigned from the issue %q", ac.params.key)
-	} else {
-		cmdutil.Success("User %q assigned to issue %q", uname, ac.params.key)
-	}
+	cmdutil.Success("User %q added as watcher of issue %q", uname, ac.params.key)
 	fmt.Printf("%s/browse/%s\n", viper.GetString("server"), ac.params.key)
 }
 
-type assignParams struct {
+type watchParams struct {
 	key   string
 	user  string
 	debug bool
 }
 
-func parseArgsAndFlags(flags query.FlagParser, args []string, project string) *assignParams {
+func parseArgsAndFlags(flags query.FlagParser, args []string, project string) *watchParams {
 	var key, user string
 
 	nargs := len(args)
@@ -138,20 +104,20 @@ func parseArgsAndFlags(flags query.FlagParser, args []string, project string) *a
 	debug, err := flags.GetBool("debug")
 	cmdutil.ExitIfError(err)
 
-	return &assignParams{
+	return &watchParams{
 		key:   key,
 		user:  user,
 		debug: debug,
 	}
 }
 
-type assignCmd struct {
+type watchCmd struct {
 	client *jira.Client
 	users  []*jira.User
-	params *assignParams
+	params *watchParams
 }
 
-func (ac *assignCmd) setIssueKey(project string) error {
+func (ac *watchCmd) setIssueKey(project string) error {
 	if ac.params.key != "" {
 		return nil
 	}
@@ -171,14 +137,9 @@ func (ac *assignCmd) setIssueKey(project string) error {
 	return nil
 }
 
-func (ac *assignCmd) setAssignee(project string) error {
+func (ac *watchCmd) setWatcher(project string) error {
 	if ac.params.user != "" && len(ac.users) == 1 {
 		ac.params.user = getQueryableName(ac.users[0].Name, ac.users[0].DisplayName)
-		return nil
-	}
-
-	lu := strings.ToLower(ac.params.user)
-	if lu == strings.ToLower(optionNone) || lu == strings.ToLower(optionDefault) || lu == "x" {
 		return nil
 	}
 
@@ -194,7 +155,7 @@ func (ac *assignCmd) setAssignee(project string) error {
 		qs := &survey.Question{
 			Name: "user",
 			Prompt: &survey.Select{
-				Message: "Assign to user:",
+				Message: "User to add to watchers:",
 				Help:    "Can't find the user? Select search and look for a keyword or cancel to abort",
 				Options: ac.getOptions(last),
 			},
@@ -226,7 +187,7 @@ func (ac *assignCmd) setAssignee(project string) error {
 		if err := ac.getSearchKeyword(); err != nil {
 			return err
 		}
-		if err := ac.searchAndAssignUser(project); err != nil {
+		if err := ac.searchAndSetUser(project); err != nil {
 			return err
 		}
 		last = true
@@ -236,7 +197,7 @@ func (ac *assignCmd) setAssignee(project string) error {
 	return nil
 }
 
-func (ac *assignCmd) getOptions(last bool) []string {
+func (ac *watchCmd) getOptions(last bool) []string {
 	var validUsers []string
 
 	for _, t := range ac.users {
@@ -248,15 +209,12 @@ func (ac *assignCmd) getOptions(last bool) []string {
 			validUsers = append(validUsers, name)
 		}
 	}
-	always := []string{optionDefault, optionNone, optionCancel}
 	options := []string{optionSearch}
 
 	if last {
 		options = append(options, validUsers...)
 		options = append(options, lineBreak)
-		options = append(options, always...)
 	} else {
-		options = append(options, always...)
 		options = append(options, lineBreak)
 		options = append(options, validUsers...)
 	}
@@ -264,7 +222,7 @@ func (ac *assignCmd) getOptions(last bool) []string {
 	return options
 }
 
-func (ac *assignCmd) getSearchKeyword() error {
+func (ac *watchCmd) getSearchKeyword() error {
 	qs := &survey.Question{
 		Name: "user",
 		Prompt: &survey.Input{
@@ -288,7 +246,7 @@ func (ac *assignCmd) getSearchKeyword() error {
 	return survey.Ask([]*survey.Question{qs}, &ac.params.user)
 }
 
-func (ac *assignCmd) searchAndAssignUser(project string) error {
+func (ac *watchCmd) searchAndSetUser(project string) error {
 	u, err := api.ProxyUserSearch(ac.client, &jira.UserSearchOptions{
 		Query:      ac.params.user,
 		Project:    project,
@@ -301,27 +259,24 @@ func (ac *assignCmd) searchAndAssignUser(project string) error {
 	return nil
 }
 
-func (ac *assignCmd) setAvailableUsers(project string) error {
+func (ac *watchCmd) setAvailableUsers(project string) error {
 	s := cmdutil.Info("Fetching available users. Please wait...")
 	defer s.Stop()
 
-	return ac.searchAndAssignUser(project)
+	return ac.searchAndSetUser(project)
 }
 
-func (ac *assignCmd) verifyAssignee() (*jira.User, error) {
-	assignee := strings.ToLower(ac.params.user)
-	if assignee == strings.ToLower(optionDefault) || assignee == strings.ToLower(optionNone) || assignee == "x" {
-		return nil, nil
-	}
+func (ac *watchCmd) verifyWatcher() (*jira.User, error) {
+	watcher := strings.ToLower(ac.params.user)
 
 	var user *jira.User
 
 	for _, u := range ac.users {
 		name := strings.ToLower(getQueryableName(u.Name, u.DisplayName))
-		if name == assignee || strings.ToLower(u.Email) == assignee {
+		if name == watcher || strings.ToLower(u.Email) == watcher {
 			user = u
 		}
-		if strings.ToLower(fmt.Sprintf("%s (%s)", u.DisplayName, u.Name)) == assignee {
+		if strings.ToLower(fmt.Sprintf("%s (%s)", u.DisplayName, u.Name)) == watcher {
 			user = u
 		}
 		if user != nil {
@@ -330,7 +285,7 @@ func (ac *assignCmd) verifyAssignee() (*jira.User, error) {
 	}
 
 	if user == nil {
-		return nil, fmt.Errorf("invalid assignee %q", ac.params.user)
+		return nil, fmt.Errorf("invalid watcher %q", ac.params.user)
 	}
 	if !user.Active {
 		return nil, fmt.Errorf("user %q is not active", getQueryableName(user.Name, user.DisplayName))

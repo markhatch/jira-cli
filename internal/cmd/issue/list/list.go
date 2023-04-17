@@ -92,7 +92,7 @@ func loadList(cmd *cobra.Command) {
 			return nil, 0, err
 		}
 
-		resp, err := api.ProxySearch(api.Client(jira.Config{Debug: debug}), q.Get(), q.Params().From, q.Params().Limit)
+		resp, err := api.ProxySearch(api.DefaultClient(debug), q.Get(), q.Params().From, q.Params().Limit)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -116,6 +116,9 @@ func loadList(cmd *cobra.Command) {
 	noTruncate, err := cmd.Flags().GetBool("no-truncate")
 	cmdutil.ExitIfError(err)
 
+	fixedColumns, err := cmd.Flags().GetUint("fixed-columns")
+	cmdutil.ExitIfError(err)
+
 	columns, err := cmd.Flags().GetString("columns")
 	cmdutil.ExitIfError(err)
 
@@ -128,9 +131,10 @@ func loadList(cmd *cobra.Command) {
 			loadList(cmd)
 		},
 		Display: view.DisplayFormat{
-			Plain:      plain,
-			NoHeaders:  noHeaders,
-			NoTruncate: noTruncate,
+			Plain:        plain,
+			NoHeaders:    noHeaders,
+			NoTruncate:   noTruncate,
+			FixedColumns: fixedColumns,
 			Columns: func() []string {
 				if columns != "" {
 					return strings.Split(columns, ",")
@@ -150,7 +154,7 @@ func SetFlags(cmd *cobra.Command) {
 
 	cmd.Flags().StringP("type", "t", "", "Filter issues by type")
 	cmd.Flags().StringP("resolution", "R", "", "Filter issues by resolution type")
-	cmd.Flags().StringP("status", "s", "", "Filter issues by status")
+	cmd.Flags().StringArrayP("status", "s", []string{}, "Filter issues by status")
 	cmd.Flags().StringP("priority", "y", "", "Filter issues by priority")
 	cmd.Flags().StringP("reporter", "r", "", "Filter issues by reporter (email or display name)")
 	cmd.Flags().StringP("assignee", "a", "", "Filter issues by assignee (email or display name)")
@@ -182,5 +186,6 @@ func SetFlags(cmd *cobra.Command) {
 	if cmd.HasParent() && cmd.Parent().Name() != "sprint" {
 		cmd.Flags().String("columns", "", "Comma separated list of columns to display in the plain mode.\n"+
 			fmt.Sprintf("Accepts: %s", strings.Join(view.ValidIssueColumns(), ", ")))
+		cmd.Flags().Uint("fixed-columns", 1, "Number of fixed columns in the interactive mode")
 	}
 }
