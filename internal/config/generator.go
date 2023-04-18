@@ -56,13 +56,17 @@ type issueTypeFieldConf struct {
 
 // JiraCLIConfig is a Jira CLI config.
 type JiraCLIConfig struct {
-	Installation string
-	Server       string
-	Login        string
-	Project      string
-	Board        string
-	Force        bool
-	Insecure     bool
+	Installation   string
+	Server         string
+	AuthType       string
+	Login          string
+	Project        string
+	Board          string
+	Force          bool
+	Insecure       bool
+	CaCert         string
+	MtlsClientCert string
+	MtlsClientKey  string
 }
 
 // JiraCLIConfigGenerator is a Jira CLI config generator.
@@ -74,13 +78,16 @@ type JiraCLIConfigGenerator struct {
 		version      struct {
 			major, minor, patch int
 		}
-		login        string
-		authType     jira.AuthType
-		project      *projectConf
-		board        *jira.Board
-		epic         *jira.Epic
-		issueTypes   []*jira.IssueType
-		customFields []*issueTypeFieldConf
+		login          string
+		authType       jira.AuthType
+		project        *projectConf
+		board          *jira.Board
+		epic           *jira.Epic
+		issueTypes     []*jira.IssueType
+		customFields   []*issueTypeFieldConf
+		caCert         string
+		mtlsClientCert string
+		mtlsClientKey  string
 	}
 	jiraClient         *jira.Client
 	projectSuggestions []string
@@ -139,9 +146,23 @@ func (c *JiraCLIConfigGenerator) Generate() (string, error) {
 	if err := c.configureInstallationType(); err != nil {
 		return "", err
 	}
+
+	if c.value.installation == jira.InstallationTypeLocal {
+		if err := c.configureLocalAuthType(); err != nil {
+			return "", err
+		}
+	}
+
+	if c.value.authType == jira.AuthTypeMTLS {
+		if err := c.configureMTLS(); err != nil {
+			return "", err
+		}
+	}
+
 	if err := c.configureServerAndLoginDetails(); err != nil {
 		return "", err
 	}
+
 	if c.value.installation == jira.InstallationTypeLocal {
 		if err := c.configureServerMeta(c.value.server, c.value.login); err != nil {
 			return "", err
@@ -185,6 +206,98 @@ func (c *JiraCLIConfigGenerator) configureInstallationType() error {
 		}
 
 		c.value.installation = installation
+	}
+
+	return nil
+}
+
+func (c *JiraCLIConfigGenerator) configureLocalAuthType() error {
+	switch c.usrCfg.AuthType {
+	case strings.ToLower(jira.AuthTypeBasic.String()):
+		c.value.authType = jira.AuthTypeBasic
+	case strings.ToLower(jira.AuthTypeMTLS.String()):
+		c.value.authType = jira.AuthTypeMTLS
+	default:
+		qs := &survey.Select{
+			Message: "Authentication type:",
+			Help:    "basic (login) or mtls (client certs)?",
+			Options: []string{"basic", "mtls"},
+			Default: "basic",
+		}
+
+		var authType string
+		if err := survey.AskOne(qs, &authType); err != nil {
+			return err
+		}
+
+		switch authType {
+		case strings.ToLower(jira.AuthTypeBasic.String()):
+			c.value.authType = jira.AuthTypeBasic
+
+		case strings.ToLower(jira.AuthTypeMTLS.String()):
+			c.value.authType = jira.AuthTypeMTLS
+		}
+	}
+
+	return nil
+}
+
+//nolint:gocyclo
+func (c *JiraCLIConfigGenerator) configureMTLS() error {
+	var qs []*survey.Question
+
+	c.value.caCert = c.usrCfg.CaCert
+	c.value.mtlsClientCert = c.usrCfg.MtlsClientCert
+	c.value.mtlsClientKey = c.usrCfg.MtlsClientKey
+
+	if c.usrCfg.CaCert == "" {
+		qs = append(qs, &survey.Question{
+			Name: "cacert",
+			Prompt: &survey.Input{
+				Message: "CA Certificate",
+				Help:    "Local path to CA Certificate for your `server`",
+			},
+		})
+	}
+	if c.usrCfg.MtlsClientCert == "" {
+		qs = append(qs, &survey.Question{
+			Name: "mtlsclientcert",
+			Prompt: &survey.Input{
+				Message: "MTLS Client Certificate",
+				Help:    "Local path to your client certificate",
+			},
+		})
+	}
+	if c.usrCfg.MtlsClientKey == "" {
+		qs = append(qs, &survey.Question{
+			Name: "mtlsclientkey",
+			Prompt: &survey.Input{
+				Message: "MTLS Client Key",
+				Help:    "Local path to client key for MTLS",
+			},
+		})
+	}
+
+	if len(qs) > 0 {
+		ans := struct {
+			CaCert         string
+			MtlsClientCert string
+			MtlsClientKey  string
+		}{}
+
+		if err := survey.Ask(qs, &ans); err != nil {
+			return err
+		}
+
+		if ans.CaCert != "" {
+			c.value.caCert = ans.CaCert
+		}
+		if ans.MtlsClientCert != "" {
+			c.value.mtlsClientCert = ans.MtlsClientCert
+		}
+		if ans.MtlsClientKey != "" {
+			c.value.mtlsClientKey = ans.MtlsClientKey
+		}
 	}
 
 	return nil
@@ -297,7 +410,8 @@ func (c *JiraCLIConfigGenerator) configureServerAndLoginDetails() error {
 		}
 	}
 
-	return c.verifyLoginDetails(c.value.server, c.value.login)
+	//return c.verifyLoginDetails(c.value.server, c.value.login)
+	return nil
 }
 
 func (c *JiraCLIConfigGenerator) verifyLoginDetails(server, login string) error {
@@ -307,11 +421,14 @@ func (c *JiraCLIConfigGenerator) verifyLoginDetails(server, login string) error 
 	server = strings.TrimRight(server, "/")
 
 	c.jiraClient = api.Client(jira.Config{
-		Server:   server,
-		Login:    login,
-		Insecure: &c.usrCfg.Insecure,
-		AuthType: c.value.authType,
-		Debug:    viper.GetBool("debug"),
+		Server:         server,
+		Login:          login,
+		Insecure:       &c.usrCfg.Insecure,
+		AuthType:       c.value.authType,
+		Debug:          viper.GetBool("debug"),
+		CaCert:         c.value.caCert,
+		MtlsClientCert: c.value.mtlsClientCert,
+		MtlsClientKey:  c.value.mtlsClientKey,
 	})
 	if ret, err := c.jiraClient.Me(); err != nil {
 		return err
@@ -332,11 +449,14 @@ func (c *JiraCLIConfigGenerator) configureServerMeta(server, login string) error
 	server = strings.TrimRight(server, "/")
 
 	c.jiraClient = api.Client(jira.Config{
-		Server:   server,
-		Login:    login,
-		Insecure: &c.usrCfg.Insecure,
-		AuthType: c.value.authType,
-		Debug:    viper.GetBool("debug"),
+		Server:         server,
+		Login:          login,
+		Insecure:       &c.usrCfg.Insecure,
+		AuthType:       c.value.authType,
+		Debug:          viper.GetBool("debug"),
+		CaCert:         c.value.caCert,
+		MtlsClientCert: c.value.mtlsClientCert,
+		MtlsClientKey:  c.value.mtlsClientKey,
 	})
 	info, err := c.jiraClient.ServerInfo()
 	if err != nil {
@@ -634,6 +754,11 @@ func (c *JiraCLIConfigGenerator) write(path string) (string, error) {
 	config.Set("epic", c.value.epic)
 	config.Set("issue.types", c.value.issueTypes)
 	config.Set("issue.fields.custom", c.value.customFields)
+
+	// MTLS
+	config.Set("ca_cert", c.value.caCert)
+	config.Set("mtls_client_cert", c.value.mtlsClientCert)
+	config.Set("mtls_client_key", c.value.mtlsClientKey)
 
 	if c.value.version.major > 0 {
 		config.Set("version.major", c.value.version.major)

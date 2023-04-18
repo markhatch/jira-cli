@@ -14,8 +14,6 @@ import (
 	"net/http/httputil"
 	"strings"
 	"time"
-
-	"github.com/spf13/viper"
 )
 
 const (
@@ -100,12 +98,15 @@ type Header map[string]string
 
 // Config is a jira config.
 type Config struct {
-	Server   string
-	Login    string
-	APIToken string
-	AuthType AuthType
-	Insecure *bool
-	Debug    bool
+	Server         string
+	Login          string
+	APIToken       string
+	AuthType       AuthType
+	Insecure       *bool
+	Debug          bool
+	CaCert         string
+	MtlsClientCert string
+	MtlsClientKey  string
 }
 
 // Client is a jira client.
@@ -125,6 +126,10 @@ type ClientFunc func(*Client)
 
 // NewClient instantiates new jira client.
 func NewClient(c Config, opts ...ClientFunc) *Client {
+
+	log.Println(c.Server)
+	log.Println(c.AuthType)
+
 	client := Client{
 		server:   strings.TrimSuffix(c.Server, "/"),
 		login:    c.Login,
@@ -138,19 +143,25 @@ func NewClient(c Config, opts ...ClientFunc) *Client {
 	}
 
 	if c.AuthType == AuthTypeMTLS {
+		log.Println("MTLS detected")
 		// Create a CA certificate pool and add cert.pem to it
-		caCert, err := ioutil.ReadFile(viper.GetString("ca_cert"))
+		caCert, err := ioutil.ReadFile(c.CaCert)
 		if err != nil {
 			log.Fatal(err)
 		}
 		caCertPool := x509.NewCertPool()
 		caCertPool.AppendCertsFromPEM(caCert)
 
+		log.Println("Read CA Cert")
+
 		// Read the key pair to create certificate
-		cert, err := tls.LoadX509KeyPair(viper.GetString("mtls_client_cert"), viper.GetString("mtls_client_key"))
+		cert, err := tls.LoadX509KeyPair(c.MtlsClientCert, c.MtlsClientKey)
 		if err != nil {
 			log.Fatal(err)
 		}
+
+		log.Println("Loaded client certs")
+
 		client.transport = &http.Transport{
 			Proxy:           http.ProxyFromEnvironment,
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: client.insecure, RootCAs: caCertPool, Certificates: []tls.Certificate{cert}, Renegotiation: tls.RenegotiateOnceAsClient},
