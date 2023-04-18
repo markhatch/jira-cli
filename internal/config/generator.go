@@ -754,6 +754,7 @@ func (c *JiraCLIConfigGenerator) write(path string) (string, error) {
 	config.Set("epic", c.value.epic)
 	config.Set("issue.types", c.value.issueTypes)
 	config.Set("issue.fields.custom", c.value.customFields)
+	config.Set("auth_type", c.value.authType)
 
 	// MTLS
 	config.Set("ca_cert", c.value.caCert)

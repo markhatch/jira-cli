@@ -127,9 +127,6 @@ type ClientFunc func(*Client)
 // NewClient instantiates new jira client.
 func NewClient(c Config, opts ...ClientFunc) *Client {
 
-	log.Println(c.Server)
-	log.Println(c.AuthType)
-
 	client := Client{
 		server:   strings.TrimSuffix(c.Server, "/"),
 		login:    c.Login,
@@ -143,16 +140,13 @@ func NewClient(c Config, opts ...ClientFunc) *Client {
 	}
 
 	if c.AuthType == AuthTypeMTLS {
-		log.Println("MTLS detected")
 		// Create a CA certificate pool and add cert.pem to it
 		caCert, err := ioutil.ReadFile(c.CaCert)
 		if err != nil {
-			log.Fatal(err)
+			log.Fatalf("%s, %s", err, c.CaCert)
 		}
 		caCertPool := x509.NewCertPool()
 		caCertPool.AppendCertsFromPEM(caCert)
-
-		log.Println("Read CA Cert")
 
 		// Read the key pair to create certificate
 		cert, err := tls.LoadX509KeyPair(c.MtlsClientCert, c.MtlsClientKey)
@@ -160,11 +154,9 @@ func NewClient(c Config, opts ...ClientFunc) *Client {
 			log.Fatal(err)
 		}
 
-		log.Println("Loaded client certs")
-
 		client.transport = &http.Transport{
 			Proxy:           http.ProxyFromEnvironment,
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: client.insecure, RootCAs: caCertPool, Certificates: []tls.Certificate{cert}, Renegotiation: tls.RenegotiateOnceAsClient},
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: client.insecure, RootCAs: caCertPool, Certificates: []tls.Certificate{cert}, Renegotiation: tls.RenegotiateFreelyAsClient},
 			DialContext: (&net.Dialer{
 				Timeout: client.timeout,
 			}).DialContext,
