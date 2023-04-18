@@ -61,7 +61,7 @@ func view(cmd *cobra.Command, args []string) {
 	cmdutil.ExitIfError(err)
 
 	v := tuiView.Issue{
-		Server:  viper.GetString("server"),
+		Server:  viper.GetString("view_server"),
 		Data:    iss,
 		Display: tuiView.DisplayFormat{Plain: plain},
 		Options: tuiView.IssueOption{NumComments: comments},

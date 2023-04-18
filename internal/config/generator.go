@@ -58,11 +58,13 @@ type issueTypeFieldConf struct {
 type JiraCLIConfig struct {
 	Installation string
 	Server       string
-	Login        string
-	Project      string
-	Board        string
-	Force        bool
-	Insecure     bool
+	// ViewServer   string
+	Login    string
+	Project  string
+	Board    string
+	Force    bool
+	Insecure bool
+	// MutualTLS    bool
 }
 
 // JiraCLIConfigGenerator is a Jira CLI config generator.
