@@ -130,7 +130,7 @@ func issueKeyFromTuiData(r int, d interface{}) string {
 }
 
 func jiraURLFromTuiData(server string, r int, d interface{}) string {
-	return fmt.Sprintf("%s", cmdutil.GenerateServerURL(server, issueKeyFromTuiData(r, d)))
+	return cmdutil.GenerateServerBrowseURL(server, issueKeyFromTuiData(r, d))
 }
 
 func navigate(server string) tui.SelectedFunc {
