@@ -156,7 +156,7 @@ func NewClient(c Config, opts ...ClientFunc) *Client {
 
 		client.transport = &http.Transport{
 			Proxy:           http.ProxyFromEnvironment,
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: client.insecure, RootCAs: caCertPool, Certificates: []tls.Certificate{cert}, Renegotiation: tls.RenegotiateFreelyAsClient},
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: client.insecure, RootCAs: caCertPool, Certificates: []tls.Certificate{cert}, Renegotiation: tls.RenegotiateOnceAsClient},
 			DialContext: (&net.Dialer{
 				Timeout: client.timeout,
 			}).DialContext,
