@@ -410,8 +410,7 @@ func (c *JiraCLIConfigGenerator) configureServerAndLoginDetails() error {
 		}
 	}
 
-	//return c.verifyLoginDetails(c.value.server, c.value.login)
-	return nil
+	return c.verifyLoginDetails(c.value.server, c.value.login)
 }
 
 func (c *JiraCLIConfigGenerator) verifyLoginDetails(server, login string) error {

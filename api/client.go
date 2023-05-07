@@ -48,7 +48,7 @@ func Client(config jira.Config) *jira.Client {
 		config.Insecure = &insecure
 	}
 
-	//MTLS
+	// MTLS
 	if config.CaCert == "" {
 		config.CaCert = viper.GetString("ca_cert")
 	}
